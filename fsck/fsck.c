@@ -769,6 +769,9 @@ static int read_file_dentry_set(struct exfat_de_iter *iter,
 	}
 
 	ret = file_calc_checksum(iter, &checksum);
+	/* A truncated dentry set is corruption; abort on operational errors. */
+	if (ret && ret != EOF && ret != -EOVERFLOW)
+		return ret;
 	if (ret || checksum != le16_to_cpu(file_de->file_checksum)) {
 		if (repair_file_ask(iter, NULL, ER_DE_CHECKSUM,
 				    "the checksum %#x of a file is wrong, expected: %#x",
@@ -977,7 +980,7 @@ static int read_file(struct exfat_de_iter *de_iter,
 	ret = check_inode(de_iter, node);
 	if (ret < 0) {
 		exfat_free_inode(node);
-		return -EINVAL;
+		return ret;
 	}
 
 	if (node->attr & ATTR_SUBDIR)
@@ -1461,6 +1464,8 @@ static int read_children(struct exfat_fsck *fsck, struct exfat_inode *dir)
 		case EXFAT_FILE:
 			ret = read_file(de_iter, &node, &dentry_count);
 			if (ret < 0) {
+				if (ret != -EINVAL)
+					goto err;
 				exfat_stat.error_count++;
 				break;
 			} else if (ret) {
